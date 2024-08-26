@@ -31,7 +31,41 @@ typedef struct {
     volatile bool capture_running;
     volatile bool capture_stopsignal;
     struct wl_output* capture_output;
+
+    uint32_t screencopy_frame_format;
+    uint32_t screencopy_frame_width;
+    uint32_t screencopy_frame_height;
+    volatile bool screencopy_frame_failed;
 } source_data;
+
+// screencopy frame
+
+static void screencopy_frame_linux_dmabuf(void* _, struct zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height) {
+    source_data* data = (source_data*) _;
+    data->screencopy_frame_format = format;
+    data->screencopy_frame_width = width;
+    data->screencopy_frame_height = height;
+}
+
+static void screencopy_frame_ready(void* _, struct zwlr_screencopy_frame_v1* frame, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+    source_data* data = (source_data*) _;
+    data->screencopy_frame_failed = false;
+}
+
+static void screencopy_frame_failed(void* _, struct zwlr_screencopy_frame_v1* frame) {
+    source_data* data = (source_data*) _;
+    data->screencopy_frame_failed = true;
+}
+
+static struct zwlr_screencopy_frame_v1_listener screencopy_frame_listener = {
+    .buffer = noop,
+    .flags = noop,
+    .ready = screencopy_frame_ready,
+    .failed = screencopy_frame_failed,
+    .damage = noop,
+    .linux_dmabuf = screencopy_frame_linux_dmabuf,
+    .buffer_done = noop
+};
 
 // capture thread
 
@@ -47,7 +81,15 @@ static void* capture_thread(void* _) {
 
         pthread_mutex_lock(&data->capture_mutex);
 
+        // request output capture
         struct zwlr_screencopy_frame_v1* screencopy_frame = zwlr_screencopy_manager_v1_capture_output(data->screencopy_manager, 0, data->capture_output);
+        zwlr_screencopy_frame_v1_add_listener(screencopy_frame, &screencopy_frame_listener, data);
+        wl_display_roundtrip(data->wl);
+        if (data->screencopy_frame_failed) {
+            blog(LOG_ERROR, "Failed to capture output");
+            pthread_mutex_unlock(&data->capture_mutex);
+            continue; // FIXME: HOW DO I HANDLE THIS??
+        }
 
         pthread_mutex_unlock(&data->capture_mutex);
     }
