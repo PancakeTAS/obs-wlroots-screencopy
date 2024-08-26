@@ -1,3 +1,4 @@
+#include <obs/graphics/graphics.h>
 #include <obs/obs-module.h>
 #include <obs/obs-properties.h>
 #include <obs/util/bmem.h>
@@ -43,6 +44,8 @@ typedef struct {
     uint32_t screencopy_frame_width;
     uint32_t screencopy_frame_height;
     volatile bool screencopy_frame_failed;
+
+    gs_texture_t* obs_texture;
 } source_data;
 
 // screencopy frame
@@ -118,20 +121,51 @@ static void* capture_thread(void* _) {
                 continue;
             }
 
+            int32_t fd = gbm_bo_get_fd_for_plane(gbm_bo, 0);
+            uint32_t offset = gbm_bo_get_offset(gbm_bo, 0);
+            uint32_t stride = gbm_bo_get_stride_for_plane(gbm_bo, 0);
+            uint64_t modifier = gbm_bo_get_modifier(gbm_bo);
+
             // create wl_buffer
             struct zwp_linux_buffer_params_v1* params = zwp_linux_dmabuf_v1_create_params(data->linux_dmabuf);
-            uint64_t modifier = gbm_bo_get_modifier(gbm_bo);
             zwp_linux_buffer_params_v1_add(params,
-                gbm_bo_get_fd_for_plane(gbm_bo, 0),
+                fd,
                 0,
-                gbm_bo_get_offset(gbm_bo, 0),
-                gbm_bo_get_stride_for_plane(gbm_bo, 0),
+                offset,
+                stride,
                 modifier >> 32,
                 modifier & 0xFFFFFFFF
             );
             wl_buffer = zwp_linux_buffer_params_v1_create_immed(params, gbm_bo_width, gbm_bo_height, data->screencopy_frame_format, 0);
             zwp_linux_buffer_params_v1_destroy(params);
+
+            // create obs texture
+            obs_enter_graphics();
+            data->obs_texture = gs_texture_create_from_dmabuf(
+                gbm_bo_width,
+                gbm_bo_height,
+                gbm_bo_format,
+                GS_RGBA,
+                1,
+                &fd,
+                &stride,
+                &offset,
+                &modifier
+            );
+            obs_leave_graphics();
         }
+
+        // copy frame to dma-buf
+        zwlr_screencopy_frame_v1_copy(screencopy_frame, wl_buffer);
+        wl_display_roundtrip(data->wl);
+        if (data->screencopy_frame_failed) {
+            blog(LOG_ERROR, "Failed to copy frame to DMA-BUF");
+            pthread_mutex_unlock(&data->capture_mutex);
+            continue; // FIXME: HOW DO I HANDLE THIS??
+        }
+
+        // release frame
+        zwlr_screencopy_frame_v1_destroy(screencopy_frame);
 
         pthread_mutex_unlock(&data->capture_mutex);
     }
@@ -140,6 +174,11 @@ static void* capture_thread(void* _) {
     if (gbm_bo != NULL) {
         gbm_bo_destroy(gbm_bo);
         wl_buffer_destroy(wl_buffer);
+
+        obs_enter_graphics();
+        gs_texture_destroy(data->obs_texture);
+        data->obs_texture = NULL;
+        obs_leave_graphics();
     }
 
     return NULL;
