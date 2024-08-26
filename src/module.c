@@ -27,8 +27,9 @@ typedef struct {
     struct zwlr_screencopy_manager_v1* screencopy_manager;
 
     pthread_t capture_thread;
-    bool capture_running;
-    bool capture_stopsignal;
+    pthread_mutex_t capture_mutex;
+    volatile bool capture_running;
+    volatile bool capture_stopsignal;
     struct wl_output* capture_output;
 } source_data;
 
@@ -44,7 +45,11 @@ static void* capture_thread(void* _) {
             continue;
         }
 
+        pthread_mutex_lock(&data->capture_mutex);
+
         struct zwlr_screencopy_frame_v1* screencopy_frame = zwlr_screencopy_manager_v1_capture_output(data->screencopy_manager, 0, data->capture_output);
+
+        pthread_mutex_unlock(&data->capture_mutex);
     }
 
     return NULL;
@@ -122,6 +127,7 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
 
     // start capture thread
     pthread_create(&data->capture_thread, NULL, capture_thread, data);
+    pthread_mutex_init(&data->capture_mutex, NULL);
 
     // update source settings
     source_update(data, settings);
@@ -133,7 +139,8 @@ static void source_update(void* _, obs_data_t* settings) {
     source_data* data = (source_data*) _;
 
     // pause capture thread
-    data->capture_running = false; // TODO: mutex
+    data->capture_running = false;
+    pthread_mutex_lock(&data->capture_mutex);
 
     // find output to capture
     const char* output_pattern = obs_data_get_string(settings, "output");
@@ -145,12 +152,13 @@ static void source_update(void* _, obs_data_t* settings) {
         }
     }
     if (data->capture_output == NULL) {
-        blog(LOG_ERROR, "Failed to find output to capture");
-        return; // FIXME: handle error
+        blog(LOG_ERROR, "Invalid output for screen capture specified");
+        return;
     }
 
     // resume capture thread
     data->capture_running = true;
+    pthread_mutex_unlock(&data->capture_mutex);
 
 }
 
@@ -160,6 +168,7 @@ static void source_destroy(void* _) {
     // stop capture thread
     data->capture_stopsignal = true;
     pthread_join(data->capture_thread, NULL);
+    pthread_mutex_destroy(&data->capture_mutex);
 
     // destroy all outputs
     wl_output_info* output, *safe_output;
@@ -178,8 +187,6 @@ static void source_destroy(void* _) {
 }
 
 static void source_render(void* _, gs_effect_t* effect) {
-
-
 
 }
 
