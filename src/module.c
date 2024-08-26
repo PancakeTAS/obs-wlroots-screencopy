@@ -102,7 +102,7 @@ static void* capture_thread(void* _) {
         if (data->screencopy_frame_failed) {
             blog(LOG_ERROR, "Failed to capture output");
             pthread_mutex_unlock(&data->capture_mutex);
-            continue; // FIXME: HOW DO I HANDLE THIS??
+            continue;
         }
 
         // create dma-buf
@@ -162,7 +162,8 @@ static void* capture_thread(void* _) {
         if (data->screencopy_frame_failed) {
             blog(LOG_ERROR, "Failed to copy frame to DMA-BUF");
             pthread_mutex_unlock(&data->capture_mutex);
-            continue; // FIXME: HOW DO I HANDLE THIS??
+            zwlr_screencopy_frame_v1_destroy(screencopy_frame);
+            continue;
         }
 
         // release frame
