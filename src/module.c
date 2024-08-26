@@ -104,6 +104,19 @@ static void source_update(void* _, obs_data_t* settings) {
 static void source_destroy(void* _) {
     source_data* data = (source_data*) _;
 
+    // destroy all outputs
+    wl_output_info* output, *safe_output;
+    wl_list_for_each_safe(output, safe_output, &data->outputs, link) {
+        wl_list_remove(&output->link);
+        free(output->name);
+        free(output->description);
+        wl_output_destroy(output->output);
+        bfree(output);
+    }
+
+    // disconnect from compositor
+    wl_display_disconnect(data->wl);
+
     bfree(data);
 }
 
