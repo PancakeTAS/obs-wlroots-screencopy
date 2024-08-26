@@ -1,6 +1,7 @@
 #include <obs/graphics/graphics.h>
 #include <obs/obs-module.h>
 #include <obs/obs-properties.h>
+#include <obs/util/base.h>
 #include <obs/util/bmem.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
@@ -331,7 +332,18 @@ static void source_destroy(void* _) {
 }
 
 static void source_render(void* _, gs_effect_t* effect) {
+    source_data* data = (source_data*) _;
+    if (data->obs_texture == NULL) {
+        return;
+    }
 
+    // render texture
+    effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+    gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), data->obs_texture);
+
+    while (gs_effect_loop(effect, "Draw")) {
+        gs_draw_sprite(data->obs_texture, 0, data->screencopy_frame_width, data->screencopy_frame_height);
+    }
 }
 
 static obs_properties_t* source_get_properties(void* _) {
