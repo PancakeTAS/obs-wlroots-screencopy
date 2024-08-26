@@ -1,20 +1,54 @@
 #include <obs/obs-module.h>
 #include <obs/obs-properties.h>
+#include <obs/util/bmem.h>
+#include <wayland-client-protocol.h>
+#include <wayland-client.h>
 
 OBS_DECLARE_MODULE()
 
 // TODO: implement source_create, source_update, source_destroy, source_render
 
+typedef struct {
+    struct wl_display* wl;
+} source_data;
+
+// wayland implementation
+
+static void wl_registry_global(void* _data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
+    source_data* data = (source_data*) _data;
+    blog(LOG_INFO, "Wayland global: %s", interface);
+}
+
+// source implementation
+
 static void* source_create(obs_data_t* settings, obs_source_t* source) {
-    return NULL;
+    source_data* data = bzalloc(sizeof(source_data));
+
+    // wayland connection
+    data->wl = wl_display_connect(NULL);
+    if (data->wl == NULL) {
+        blog(LOG_ERROR, "Failed to connect to Wayland display");
+        return NULL;
+    }
+
+    struct wl_registry* registry = wl_display_get_registry(data->wl);
+    struct wl_registry_listener listener = {
+        .global = wl_registry_global
+    };
+    wl_registry_add_listener(registry, &listener, data);
+    wl_display_roundtrip(data->wl);
+
+    return data;
 }
 
 static void source_update(void* _, obs_data_t* settings) {
 
 }
 
-static void source_destroy(void* _) {
+static void source_destroy(void* _data) {
+    source_data* data = (source_data*) _data;
 
+    bfree(data);
 }
 
 static void source_render(void* _, gs_effect_t* effect) {
