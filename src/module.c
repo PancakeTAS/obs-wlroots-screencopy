@@ -124,13 +124,29 @@ static void source_render(void* _, gs_effect_t* effect) {
 
 }
 
+static obs_properties_t* source_get_properties(void* _) {
+    source_data* data = (source_data*) _;
+    obs_properties_t* properties = obs_properties_create();
+
+    // add output list property
+    obs_property_t* output = obs_properties_add_list(properties, "output", "Output", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+    wl_output_info* info;
+    wl_list_for_each(info, &data->outputs, link) {
+        obs_property_list_add_string(output, info->name, info->name);
+    }
+
+    return properties;
+}
+
+static void source_get_defaults(obs_data_t* settings) {
+    obs_data_set_default_string(settings, "output", "");
+}
+
 // obs source definition
 
 static const char* source_get_name(void* _) { return "Screencopy Source"; }
 static uint32_t source_get_width(void* _) { return 2560; } // FIXME: don't hardcode width and height
 static uint32_t source_get_height(void* _) { return 1440; }
-static obs_properties_t* source_get_properties(void* _) { return obs_properties_create(); } // FIXME: add properties and defaults
-static void source_get_defaults(obs_data_t* _) {}
 static struct obs_source_info source_info = {
     .id = "screencopy-source",
     .version = 1,
