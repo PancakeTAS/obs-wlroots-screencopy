@@ -139,13 +139,13 @@ static void source_update(void* _, obs_data_t* settings) {
     const char* output_pattern = obs_data_get_string(settings, "output");
     wl_output_info* output_info = NULL;
     wl_list_for_each(output_info, &data->outputs, link) {
-        if (strstr(output_info->name, output_pattern) == output_info->name) {
+        if (strcmp(output_info->name, output_pattern) == 0) {
             data->capture_output = output_info->output;
             break;
         }
     }
     if (data->capture_output == NULL) {
-        blog(LOG_ERROR, "Failed to find output matching pattern '%s'", output_pattern);
+        blog(LOG_ERROR, "Failed to find output to capture");
         return; // FIXME: handle error
     }
 
@@ -190,9 +190,10 @@ static obs_properties_t* source_get_properties(void* _) {
     // add output list property
     obs_property_t* output = obs_properties_add_list(properties, "output", "Output", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     wl_output_info* info;
+    char label[1024];
     wl_list_for_each(info, &data->outputs, link) {
-        // FIXME: add description to output list
-        obs_property_list_add_string(output, info->name, info->name);
+        snprintf(label, sizeof(label), "%s: %s", info->name, info->description ? info->description : "no description");
+        obs_property_list_add_string(output, label, info->name);
     }
 
     return properties;
