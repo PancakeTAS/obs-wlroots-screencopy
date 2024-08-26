@@ -369,8 +369,8 @@ static void source_get_defaults(obs_data_t* settings) {
 // obs source definition
 
 static const char* source_get_name(void* _) { return "Screencopy Source"; }
-static uint32_t source_get_width(void* _) { return 2560; } // FIXME: don't hardcode width and height
-static uint32_t source_get_height(void* _) { return 1440; }
+static uint32_t source_get_width(void* _) { return ((source_data*) _)->screencopy_frame_width; }
+static uint32_t source_get_height(void* _) { return ((source_data*) _)->screencopy_frame_height; }
 static struct obs_source_info source_info = {
     .id = "screencopy-source",
     .version = 1,
