@@ -1,15 +1,16 @@
-#include <fcntl.h>
 #include <obs/obs-module.h>
 #include <obs/obs-properties.h>
 #include <obs/util/bmem.h>
-#include <unistd.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
 #include <wayland-util.h>
 #include <pthread.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <gbm.h>
 
 #include "wlr-protocols/wlr-screencopy-unstable-v1.h"
+#include "wayland-protocols/linux-dmabuf-unstable-v1.h"
 
 OBS_DECLARE_MODULE()
 
@@ -27,8 +28,10 @@ typedef struct {
     int gbm_fd;
     struct gbm_device* gbm;
     struct wl_display* wl;
+
     struct wl_list outputs;
     struct zwlr_screencopy_manager_v1* screencopy_manager;
+    struct zwp_linux_dmabuf_v1* linux_dmabuf;
 
     pthread_t capture_thread;
     pthread_mutex_t capture_mutex;
@@ -78,6 +81,7 @@ static void* capture_thread(void* _) {
 
     // loop capture
     struct gbm_bo* gbm_bo = NULL;
+    struct wl_buffer* wl_buffer = NULL;
     uint32_t gbm_bo_width, gbm_bo_height, gbm_bo_format;
     while (!data->capture_stopsignal) {
         if (!data->capture_running) {
@@ -98,17 +102,35 @@ static void* capture_thread(void* _) {
         }
 
         // create dma-buf
-        if (gbm_bo == NULL) {
-            gbm_bo_width = data->screencopy_frame_width;
-            gbm_bo_height = data->screencopy_frame_height;
-            gbm_bo_format = data->screencopy_frame_format;
-            gbm_bo = gbm_bo_create(data->gbm, gbm_bo_width, gbm_bo_height, gbm_bo_format, GBM_BO_USE_RENDERING);
-        } else if (gbm_bo_width != data->screencopy_frame_width || gbm_bo_height != data->screencopy_frame_height || gbm_bo_format != data->screencopy_frame_format) {
+        if ((gbm_bo_width != data->screencopy_frame_width || gbm_bo_height != data->screencopy_frame_height || gbm_bo_format != data->screencopy_frame_format) && gbm_bo) {
             gbm_bo_destroy(gbm_bo);
+            gbm_bo = NULL;
+        }
+
+        if (!gbm_bo) {
             gbm_bo_width = data->screencopy_frame_width;
             gbm_bo_height = data->screencopy_frame_height;
             gbm_bo_format = data->screencopy_frame_format;
             gbm_bo = gbm_bo_create(data->gbm, gbm_bo_width, gbm_bo_height, gbm_bo_format, GBM_BO_USE_RENDERING);
+            if (gbm_bo == NULL) {
+                blog(LOG_ERROR, "Failed to create GBM buffer object");
+                pthread_mutex_unlock(&data->capture_mutex);
+                continue;
+            }
+
+            // create wl_buffer
+            struct zwp_linux_buffer_params_v1* params = zwp_linux_dmabuf_v1_create_params(data->linux_dmabuf);
+            uint64_t modifier = gbm_bo_get_modifier(gbm_bo);
+            zwp_linux_buffer_params_v1_add(params,
+                gbm_bo_get_fd_for_plane(gbm_bo, 0),
+                0,
+                gbm_bo_get_offset(gbm_bo, 0),
+                gbm_bo_get_stride_for_plane(gbm_bo, 0),
+                modifier >> 32,
+                modifier & 0xFFFFFFFF
+            );
+            wl_buffer = zwp_linux_buffer_params_v1_create_immed(params, gbm_bo_width, gbm_bo_height, data->screencopy_frame_format, 0);
+            zwp_linux_buffer_params_v1_destroy(params);
         }
 
         pthread_mutex_unlock(&data->capture_mutex);
@@ -117,6 +139,7 @@ static void* capture_thread(void* _) {
     // destroy dma-buf
     if (gbm_bo != NULL) {
         gbm_bo_destroy(gbm_bo);
+        wl_buffer_destroy(wl_buffer);
     }
 
     return NULL;
@@ -155,6 +178,8 @@ static void wl_registry_global(void* _, struct wl_registry* registry, uint32_t n
         wl_list_insert(&data->outputs, &output->link);
     } else if (strcmp(interface, zwlr_screencopy_manager_v1_interface.name) == 0) {
         data->screencopy_manager = wl_registry_bind(registry, name, &zwlr_screencopy_manager_v1_interface, version);
+    } else if (strcmp(interface, zwp_linux_dmabuf_v1_interface.name) == 0) {
+        data->linux_dmabuf = wl_registry_bind(registry, name, &zwp_linux_dmabuf_v1_interface, version);
     }
 
 }
@@ -255,8 +280,13 @@ static void source_destroy(void* _) {
         bfree(output);
     }
 
-    // disconnect from compositor
+    // destroy wayland objects
+    zwlr_screencopy_manager_v1_destroy(data->screencopy_manager);
+    zwp_linux_dmabuf_v1_destroy(data->linux_dmabuf);
     wl_display_disconnect(data->wl);
+
+    // destroy gbm device
+    gbm_device_destroy(data->gbm);
 
     bfree(data);
 }

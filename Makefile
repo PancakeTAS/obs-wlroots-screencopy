@@ -1,4 +1,4 @@
-SOURCES = $(wildcard src/*.c src/wlr-protocols/*.c)
+SOURCES = $(wildcard src/*.c src/wlr-protocols/*.c src/wayland-protocols/*.c)
 OBJECTS = $(SOURCES:.c=.o)
 
 TARGET = obs-wlroots-screencopy
@@ -19,8 +19,11 @@ all: $(TARGET).so
 
 scanner: /usr/share/wlr-protocols/unstable/wlr-screencopy-unstable-v1.xml
 	mkdir -p src/wlr-protocols
+	mkdir -p src/wayland-protocols
 	wayland-scanner client-header /usr/share/wlr-protocols/unstable/wlr-screencopy-unstable-v1.xml src/wlr-protocols/wlr-screencopy-unstable-v1.h
 	wayland-scanner private-code /usr/share/wlr-protocols/unstable/wlr-screencopy-unstable-v1.xml src/wlr-protocols/wlr-screencopy-unstable-v1.c
+	wayland-scanner client-header /usr/share/wayland-protocols/unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml src/wayland-protocols/linux-dmabuf-unstable-v1.h
+	wayland-scanner private-code /usr/share/wayland-protocols/unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml src/wayland-protocols/linux-dmabuf-unstable-v1.c
 
 %.o: %.c scanner
 	$(CC) $(CFLAGS) -c $< -o $@
