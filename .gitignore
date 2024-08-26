@@ -4,3 +4,6 @@
 # objects
 *.so
 *.o
+
+# wlroots protocols
+src/wlr-protocols

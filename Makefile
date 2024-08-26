@@ -1,4 +1,4 @@
-SOURCES = $(wildcard src/*.c)
+SOURCES = $(wildcard src/*.c src/wlr-protocols/*.c)
 OBJECTS = $(SOURCES:.c=.o)
 
 TARGET = obs-wlroots-screencopy
@@ -6,7 +6,7 @@ TARGET = obs-wlroots-screencopy
 CC = gcc
 CFLAGS = -Wno-unused-parameter -Wall -Wextra -std=gnu17 -fPIC
 LDFLAGS = -shared
-LIBS = -lobs
+LIBS = -lobs -lwayland-client
 
 ifndef PROD
 CFLAGS += -g
@@ -15,7 +15,14 @@ CFLAGS += -O3 -march=native -mtune=native
 LDLAGS += -flto=auto
 endif
 
-%.o: %.c
+all: $(TARGET).so
+
+scanner: /usr/share/wlr-protocols/unstable/wlr-screencopy-unstable-v1.xml
+	mkdir -p src/wlr-protocols
+	wayland-scanner client-header /usr/share/wlr-protocols/unstable/wlr-screencopy-unstable-v1.xml src/wlr-protocols/wlr-screencopy-unstable-v1.h
+	wayland-scanner private-code /usr/share/wlr-protocols/unstable/wlr-screencopy-unstable-v1.xml src/wlr-protocols/wlr-screencopy-unstable-v1.c
+
+%.o: %.c scanner
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).so: $(OBJECTS)
@@ -34,4 +41,4 @@ debug: $(TARGET).so
 clean:
 	rm -f $(OBJECTS) $(TARGET).so
 
-.PHONY: link run debug clean
+.PHONY: all clean run debug link scanner
