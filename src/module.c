@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <obs/obs-module.h>
 #include <obs/obs-properties.h>
 #include <obs/util/bmem.h>
@@ -6,6 +7,7 @@
 #include <wayland-client.h>
 #include <wayland-util.h>
 #include <pthread.h>
+#include <gbm.h>
 
 #include "wlr-protocols/wlr-screencopy-unstable-v1.h"
 
@@ -22,6 +24,8 @@ typedef struct {
 } wl_output_info;
 
 typedef struct {
+    int gbm_fd;
+    struct gbm_device* gbm;
     struct wl_display* wl;
     struct wl_list outputs;
     struct zwlr_screencopy_manager_v1* screencopy_manager;
@@ -73,6 +77,8 @@ static void* capture_thread(void* _) {
     source_data* data = (source_data*) _;
 
     // loop capture
+    struct gbm_bo* gbm_bo = NULL;
+    uint32_t gbm_bo_width, gbm_bo_height, gbm_bo_format;
     while (!data->capture_stopsignal) {
         if (!data->capture_running) {
             usleep(1000); // 1ms
@@ -91,7 +97,26 @@ static void* capture_thread(void* _) {
             continue; // FIXME: HOW DO I HANDLE THIS??
         }
 
+        // create dma-buf
+        if (gbm_bo == NULL) {
+            gbm_bo_width = data->screencopy_frame_width;
+            gbm_bo_height = data->screencopy_frame_height;
+            gbm_bo_format = data->screencopy_frame_format;
+            gbm_bo = gbm_bo_create(data->gbm, gbm_bo_width, gbm_bo_height, gbm_bo_format, GBM_BO_USE_RENDERING);
+        } else if (gbm_bo_width != data->screencopy_frame_width || gbm_bo_height != data->screencopy_frame_height || gbm_bo_format != data->screencopy_frame_format) {
+            gbm_bo_destroy(gbm_bo);
+            gbm_bo_width = data->screencopy_frame_width;
+            gbm_bo_height = data->screencopy_frame_height;
+            gbm_bo_format = data->screencopy_frame_format;
+            gbm_bo = gbm_bo_create(data->gbm, gbm_bo_width, gbm_bo_height, gbm_bo_format, GBM_BO_USE_RENDERING);
+        }
+
         pthread_mutex_unlock(&data->capture_mutex);
+    }
+
+    // destroy dma-buf
+    if (gbm_bo != NULL) {
+        gbm_bo_destroy(gbm_bo);
     }
 
     return NULL;
@@ -144,6 +169,14 @@ static struct wl_registry_listener listener = {
 static void source_update(void* _, obs_data_t* settings);
 static void* source_create(obs_data_t* settings, obs_source_t* source) {
     source_data* data = bzalloc(sizeof(source_data));
+
+    // create gbm device
+    data->gbm_fd = open("/dev/dri/renderD128", O_RDWR);
+    data->gbm = gbm_create_device(data->gbm_fd);
+    if (data->gbm == NULL) {
+        blog(LOG_ERROR, "Failed to create GBM device");
+        return NULL;
+    }
 
     // connect to compositor
     data->wl = wl_display_connect(NULL);

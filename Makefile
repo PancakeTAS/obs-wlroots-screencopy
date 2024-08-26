@@ -6,7 +6,7 @@ TARGET = obs-wlroots-screencopy
 CC = gcc
 CFLAGS = -Wno-unused-parameter -Wall -Wextra -std=gnu17 -fPIC
 LDFLAGS = -shared
-LIBS = -lobs -lwayland-client
+LIBS = -lobs -lwayland-client -lgbm
 
 ifndef PROD
 CFLAGS += -g
