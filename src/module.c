@@ -3,8 +3,11 @@
 #include <obs/util/bmem.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
+#include <wayland-util.h>
 
 OBS_DECLARE_MODULE()
+
+static void noop() {}
 
 // TODO: implement source_create, source_update, source_destroy, source_render
 
@@ -24,7 +27,7 @@ static void wl_registry_global(void* _data, struct wl_registry* registry, uint32
 static void* source_create(obs_data_t* settings, obs_source_t* source) {
     source_data* data = bzalloc(sizeof(source_data));
 
-    // wayland connection
+    // connect to compositor
     data->wl = wl_display_connect(NULL);
     if (data->wl == NULL) {
         blog(LOG_ERROR, "Failed to connect to Wayland display");
@@ -45,8 +48,8 @@ static void source_update(void* _, obs_data_t* settings) {
 
 }
 
-static void source_destroy(void* _data) {
-    source_data* data = (source_data*) _data;
+static void source_destroy(void* _) {
+    source_data* data = (source_data*) _;
 
     bfree(data);
 }
@@ -55,7 +58,7 @@ static void source_render(void* _, gs_effect_t* effect) {
 
 }
 
-// source definition
+// obs source definition
 
 static const char* source_get_name(void* _) { return "Screencopy Source"; }
 static uint32_t source_get_width(void* _) { return 2560; } // FIXME: don't hardcode width and height
@@ -83,7 +86,7 @@ static struct obs_source_info source_info = {
     .get_height = source_get_height
 };
 
-// module definition
+// obs module
 
 bool obs_module_load() {
     obs_register_source(&source_info);
