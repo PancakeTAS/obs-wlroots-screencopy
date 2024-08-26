@@ -12,17 +12,60 @@ static void noop() {}
 // TODO: implement source_create, source_update, source_destroy, source_render
 
 typedef struct {
+    struct wl_output* output;
+    char* name;
+    char* description; // (optional!)
+
+    struct wl_list link;
+} wl_output_info;
+
+typedef struct {
     struct wl_display* wl;
+    struct wl_list outputs;
 } source_data;
 
-// wayland implementation
 
-static void wl_registry_global(void* _data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
-    source_data* data = (source_data*) _data;
-    blog(LOG_INFO, "Wayland global: %s", interface);
+// wayland output
+
+static void wl_output_name(void* _, struct wl_output* output, const char* name) {
+    wl_output_info* info = (wl_output_info*) _;
+    info->name = strdup(name);
 }
 
-// source implementation
+static void wl_output_description(void* _, struct wl_output* output, const char* description) {
+    wl_output_info* info = (wl_output_info*) _;
+    info->description = strdup(description);
+}
+
+static struct wl_output_listener output_listener = {
+    .geometry = noop,
+    .mode = noop,
+    .done = noop,
+    .scale = noop,
+    .name = wl_output_name,
+    .description = wl_output_description
+};
+
+// wayland registry
+
+static void wl_registry_global(void* _, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
+    source_data* data = (source_data*) _;
+
+    if (strcmp(interface, wl_output_interface.name) == 0) {
+        wl_output_info* output = bzalloc(sizeof(wl_output_info));
+        output->output = wl_registry_bind(registry, name, &wl_output_interface, version);
+        wl_output_add_listener(output->output, &output_listener, output);
+        wl_list_insert(&data->outputs, &output->link);
+    }
+
+}
+
+static struct wl_registry_listener listener = {
+    .global = wl_registry_global,
+    .global_remove = noop
+};
+
+// obs source
 
 static void* source_create(obs_data_t* settings, obs_source_t* source) {
     source_data* data = bzalloc(sizeof(source_data));
@@ -34,12 +77,22 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
         return NULL;
     }
 
+    // initialize data struct
+    wl_list_init(&data->outputs);
+
+    // fetch registry
     struct wl_registry* registry = wl_display_get_registry(data->wl);
-    struct wl_registry_listener listener = {
-        .global = wl_registry_global
-    };
     wl_registry_add_listener(registry, &listener, data);
     wl_display_roundtrip(data->wl);
+
+    // fetch outputs (note: listeners are registered during binding)
+    wl_display_roundtrip(data->wl);
+
+    // dev: print all outputs
+    wl_output_info* output;
+    wl_list_for_each(output, &data->outputs, link) {
+        blog(LOG_INFO, "Found %s with description %s", output->name, output->description);
+    }
 
     return data;
 }
