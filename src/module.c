@@ -82,6 +82,9 @@ static struct zwlr_screencopy_frame_v1_listener screencopy_frame_listener = {
 static void* capture_thread(void* _) {
     source_data* data = (source_data*) _;
 
+    // > TODO: i would like to experiment with copy_with_damage here to keep vfr and reduce cpu usage.
+    // > this code needs to be adjusted to update at a fixed interval anyways, so it might be worth it.
+
     // loop capture
     struct gbm_bo* gbm_bo = NULL;
     struct wl_buffer* wl_buffer = NULL;
@@ -151,7 +154,7 @@ static void* capture_thread(void* _) {
                 gbm_bo_width,
                 gbm_bo_height,
                 gbm_bo_format,
-                GS_RGBA,
+                GS_RGBA, // FIXME: experiment with other formats and figure out why 10-bit or 16-bit formats get a white tint when selected in obs
                 1,
                 &fd,
                 &stride,
@@ -239,7 +242,7 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
     source_data* data = bzalloc(sizeof(source_data));
 
     // create gbm device
-    data->gbm_fd = open("/dev/dri/renderD128", O_RDWR);
+    data->gbm_fd = open("/dev/dri/renderD128", O_RDWR); // TODO: allow user to specify device
     data->gbm = gbm_create_device(data->gbm_fd);
     if (data->gbm == NULL) {
         blog(LOG_ERROR, "Failed to create GBM device");
@@ -247,11 +250,14 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
     }
 
     // connect to compositor
-    data->wl = wl_display_connect(NULL);
+    data->wl = wl_display_connect(NULL); // TODO: allow user to specify wayland display
     if (data->wl == NULL) {
         blog(LOG_ERROR, "Failed to connect to Wayland display");
         return NULL;
     }
+
+    // > TODO: it would be nice to have a way to specify a rect and use capture_output_region instead of capture_output to reduce bandwidth
+    // > but it's also not really necessary for most use cases, so it's not a priority
 
     // initialize data struct
     wl_list_init(&data->outputs);
