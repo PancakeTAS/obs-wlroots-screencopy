@@ -260,24 +260,24 @@ static struct wl_registry_listener listener = {
 static void source_update(void* _, obs_data_t* settings);
 static void* source_create(obs_data_t* settings, obs_source_t* source) {
     source_data* data = bzalloc(sizeof(source_data));
+    wl_list_init(&data->outputs);
 
     // create gbm device
-    data->gbm_fd = open("/dev/dri/renderD128", O_RDWR); // TODO: allow user to specify device
+    const char* gbm_device = obs_data_get_string(settings, "gbm_device");
+    data->gbm_fd = open((gbm_device && strlen(gbm_device) != 0) ? gbm_device : "/dev/dri/renderD128", O_RDWR);
     data->gbm = gbm_create_device(data->gbm_fd);
     if (data->gbm == NULL) {
         blog(LOG_ERROR, "Failed to create GBM device");
-        return NULL;
+        return data;
     }
 
     // connect to compositor
-    data->wl = wl_display_connect(NULL); // TODO: allow user to specify wayland display
+    const char* wl_display = obs_data_get_string(settings, "wl_display");
+    data->wl = wl_display_connect(wl_display && strlen(wl_display) != 0 ? wl_display : NULL);
     if (data->wl == NULL) {
         blog(LOG_ERROR, "Failed to connect to Wayland display");
-        return NULL;
+        return data;
     }
-
-    // initialize data struct
-    wl_list_init(&data->outputs);
 
     // fetch registry
     struct wl_registry* registry = wl_display_get_registry(data->wl);
@@ -379,11 +379,19 @@ static obs_properties_t* source_get_properties(void* _) {
         obs_property_list_add_string(output, label, info->name);
     }
 
+    // add gbm and wayland device properties
+    obs_properties_t* advanced = obs_properties_create();
+    obs_properties_add_text(advanced, "gbm_device", "GBM Device", OBS_TEXT_DEFAULT);
+    obs_properties_add_text(advanced, "wl_display", "Wayland Display", OBS_TEXT_DEFAULT);
+    obs_properties_add_group(properties, "advanced", "Advanced Settings (requires restart)", OBS_GROUP_NORMAL, advanced);
+
     return properties;
 }
 
 static void source_get_defaults(obs_data_t* settings) {
     obs_data_set_default_string(settings, "output", "");
+    obs_data_set_default_string(settings, "gbm_device", NULL);
+    obs_data_set_default_string(settings, "wl_display", NULL);
 }
 
 // obs source definition
