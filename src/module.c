@@ -49,6 +49,7 @@ typedef struct {
     volatile bool screencopy_frame_failed;
 
     gs_texture_t* obs_texture;
+    enum gs_color_space obs_color_space;
 
     uint64_t frame_duration_ns;
 } source_data;
@@ -157,13 +158,33 @@ static void* capture_thread(void* _) {
             wl_buffer = zwp_linux_buffer_params_v1_create_immed(params, gbm_bo_width, gbm_bo_height, data->screencopy_frame_format, 0);
             zwp_linux_buffer_params_v1_destroy(params);
 
+            // find fitting color format
+            enum gs_color_format color_format = GS_BGRX;
+            data->obs_color_space = GS_CS_SRGB;
+            if (data->screencopy_frame_format == GBM_FORMAT_XRGB2101010
+                || data->screencopy_frame_format == GBM_FORMAT_XBGR2101010
+                || data->screencopy_frame_format == GBM_FORMAT_RGBX1010102
+                || data->screencopy_frame_format == GBM_FORMAT_BGRX1010102
+
+                || data->screencopy_frame_format == GBM_FORMAT_ARGB2101010
+                || data->screencopy_frame_format == GBM_FORMAT_ABGR2101010
+                || data->screencopy_frame_format == GBM_FORMAT_RGBA1010102
+                || data->screencopy_frame_format == GBM_FORMAT_BGRA1010102) {
+                color_format = GS_R10G10B10A2;
+                data->obs_color_space = GS_CS_SRGB_16F;
+            } else if (data->screencopy_frame_format == GBM_FORMAT_XBGR16161616
+                || data->screencopy_frame_format == GBM_FORMAT_ABGR16161616) {
+                color_format = GS_RGBA16;
+                data->obs_color_space = GS_CS_SRGB_16F;
+            }
+
             // create obs texture
             obs_enter_graphics();
             data->obs_texture = gs_texture_create_from_dmabuf(
                 gbm_bo_width,
                 gbm_bo_height,
                 gbm_bo_format,
-                GS_R10G10B10A2, // FIXME: experiment with other formats and figure out why 10-bit or 16-bit formats get a white tint when selected in obs
+                color_format,
                 1,
                 &fd,
                 &stride,
@@ -358,10 +379,11 @@ static void source_render(void* _, gs_effect_t* effect) {
     }
 
     // render texture
+    char* technique = (data->obs_color_space == GS_CS_SRGB || gs_get_color_space() == GS_CS_SRGB) ? "Draw" : "DrawSrgbDecompress";
     effect = obs_get_base_effect(OBS_EFFECT_OPAQUE);
     gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), data->obs_texture);
 
-    while (gs_effect_loop(effect, "Draw")) {
+    while (gs_effect_loop(effect, technique)) {
         gs_draw_sprite(data->obs_texture, 0, data->screencopy_frame_width, data->screencopy_frame_height);
     }
 }
@@ -399,14 +421,14 @@ static void source_get_defaults(obs_data_t* settings) {
 static const char* source_get_name(void* _) { return "Screencopy Source"; }
 static uint32_t source_get_width(void* _) { return ((source_data*) _)->screencopy_frame_width; }
 static uint32_t source_get_height(void* _) { return ((source_data*) _)->screencopy_frame_height; }
-enum gs_color_space source_get_color_space(void* _, size_t count, const enum gs_color_space *preferred_spaces) { return GS_CS_SRGB_16F; }
+static enum gs_color_space source_get_color_space(void* _, size_t count, const enum gs_color_space *preferred_spaces) { return ((source_data*) _)->obs_color_space; }
 static struct obs_source_info source_info = {
     .id = "screencopy-source",
     .version = 1,
     .get_name = source_get_name,
 
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_DO_NOT_DUPLICATE,
+    .output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_SRGB,
     .icon_type = OBS_ICON_TYPE_DESKTOP_CAPTURE,
 
     .create = source_create,
@@ -419,7 +441,7 @@ static struct obs_source_info source_info = {
 
     .get_width = source_get_width,
     .get_height = source_get_height,
-    .video_get_color_space = source_get_color_space
+    .video_get_color_space = source_get_color_space,
 };
 
 // obs module
