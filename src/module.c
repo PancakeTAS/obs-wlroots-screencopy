@@ -1,8 +1,11 @@
+#include <bits/time.h>
 #include <obs/graphics/graphics.h>
 #include <obs/obs-module.h>
 #include <obs/obs-properties.h>
+#include <obs/obs.h>
 #include <obs/util/base.h>
 #include <obs/util/bmem.h>
+#include <time.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
 #include <wayland-util.h>
@@ -46,6 +49,8 @@ typedef struct {
     volatile bool screencopy_frame_failed;
 
     gs_texture_t* obs_texture;
+
+    uint64_t frame_duration_ns;
 } source_data;
 
 // screencopy frame
@@ -82,20 +87,24 @@ static struct zwlr_screencopy_frame_v1_listener screencopy_frame_listener = {
 static void* capture_thread(void* _) {
     source_data* data = (source_data*) _;
 
-    // > TODO: i would like to experiment with copy_with_damage here to keep vfr and reduce cpu usage.
-    // > this code needs to be adjusted to update at a fixed interval anyways, so it might be worth it.
-
-    // loop capture
+    // buffer objects
     struct gbm_bo* gbm_bo = NULL;
     struct wl_buffer* wl_buffer = NULL;
     uint32_t gbm_bo_width = 0;
     uint32_t gbm_bo_height = 0;
     uint32_t gbm_bo_format = 0;
+
+    // loop capture
+    struct timespec ts;
     while (!data->capture_stopsignal) {
         if (!data->capture_output) {
             usleep(1000); // 1ms
             continue;
         }
+
+        // prepare timer
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        uint64_t start_time = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 
         // request output capture
         struct zwlr_screencopy_frame_v1* screencopy_frame = zwlr_screencopy_manager_v1_capture_output(data->screencopy_manager, 0, data->capture_output);
@@ -175,6 +184,17 @@ static void* capture_thread(void* _) {
 
         // release frame
         zwlr_screencopy_frame_v1_destroy(screencopy_frame);
+
+        // wait for next frame
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        uint64_t end_time = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+        uint64_t frame_time = end_time - start_time;
+        if (frame_time < data->frame_duration_ns) {
+            uint64_t sleep_micros = (data->frame_duration_ns - frame_time) / 1000;
+            usleep(sleep_micros * 0.9); // sleep 90% of the time to allow for some slack, if your display manages 900hz and you're capturing at 60hz.. screw you in particular
+        } else {
+            blog(LOG_WARNING, "Frame took too long to capture: %lu ns", frame_time);
+        }
     }
 
     // destroy dma-buf
@@ -299,6 +319,10 @@ static void source_update(void* _, obs_data_t* settings) {
         blog(LOG_ERROR, "Invalid output for screen capture specified");
         return;
     }
+
+    // update frame duration
+    data->frame_duration_ns = obs_get_frame_interval_ns();
+    printf("Frame duration: %lu ns\n", data->frame_duration_ns);
 
 }
 
