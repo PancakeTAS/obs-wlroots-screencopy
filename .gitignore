@@ -7,3 +7,4 @@
 
 # wlroots protocols
 src/wlr-protocols
+src/wayland-protocols
