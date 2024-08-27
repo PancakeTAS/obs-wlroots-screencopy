@@ -8,6 +8,7 @@ Fortunately, the desktop portal and pipewire simply use a wlroots protocol calle
 Your compositor needs to support these experimental protocols:
 - [Linux DMA-BUF](https://wayland.app/protocols/linux-dmabuf-v1)
 - [wlr screencopy](https://wayland.app/protocols/wlr-screencopy-unstable-v1)
+
 (see compositor support at the bottom of the page)
 
 ## Installation
