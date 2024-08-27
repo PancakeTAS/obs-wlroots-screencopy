@@ -276,9 +276,6 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
         return NULL;
     }
 
-    // > TODO: it would be nice to have a way to specify a rect and use capture_output_region instead of capture_output to reduce bandwidth
-    // > but it's also not really necessary for most use cases, so it's not a priority
-
     // initialize data struct
     wl_list_init(&data->outputs);
 
