@@ -163,7 +163,7 @@ static void* capture_thread(void* _) {
                 gbm_bo_width,
                 gbm_bo_height,
                 gbm_bo_format,
-                GS_RGBA, // FIXME: experiment with other formats and figure out why 10-bit or 16-bit formats get a white tint when selected in obs
+                GS_R10G10B10A2, // FIXME: experiment with other formats and figure out why 10-bit or 16-bit formats get a white tint when selected in obs
                 1,
                 &fd,
                 &stride,
@@ -358,7 +358,7 @@ static void source_render(void* _, gs_effect_t* effect) {
     }
 
     // render texture
-    effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+    effect = obs_get_base_effect(OBS_EFFECT_OPAQUE);
     gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), data->obs_texture);
 
     while (gs_effect_loop(effect, "Draw")) {
@@ -399,13 +399,14 @@ static void source_get_defaults(obs_data_t* settings) {
 static const char* source_get_name(void* _) { return "Screencopy Source"; }
 static uint32_t source_get_width(void* _) { return ((source_data*) _)->screencopy_frame_width; }
 static uint32_t source_get_height(void* _) { return ((source_data*) _)->screencopy_frame_height; }
+enum gs_color_space source_get_color_space(void* _, size_t count, const enum gs_color_space *preferred_spaces) { return GS_CS_SRGB_16F; }
 static struct obs_source_info source_info = {
     .id = "screencopy-source",
     .version = 1,
     .get_name = source_get_name,
 
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_SRGB,
+    .output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_DO_NOT_DUPLICATE,
     .icon_type = OBS_ICON_TYPE_DESKTOP_CAPTURE,
 
     .create = source_create,
@@ -417,7 +418,8 @@ static struct obs_source_info source_info = {
     .get_defaults = source_get_defaults,
 
     .get_width = source_get_width,
-    .get_height = source_get_height
+    .get_height = source_get_height,
+    .video_get_color_space = source_get_color_space
 };
 
 // obs module
