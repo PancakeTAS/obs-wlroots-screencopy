@@ -36,8 +36,7 @@ typedef struct {
     struct zwp_linux_dmabuf_v1* linux_dmabuf;
 
     pthread_t capture_thread;
-    pthread_mutex_t capture_mutex;
-    volatile bool capture_running;
+
     volatile bool capture_stopsignal;
     struct wl_output* capture_output;
 
@@ -86,14 +85,14 @@ static void* capture_thread(void* _) {
     // loop capture
     struct gbm_bo* gbm_bo = NULL;
     struct wl_buffer* wl_buffer = NULL;
-    uint32_t gbm_bo_width, gbm_bo_height, gbm_bo_format;
+    uint32_t gbm_bo_width = 0;
+    uint32_t gbm_bo_height = 0;
+    uint32_t gbm_bo_format = 0;
     while (!data->capture_stopsignal) {
-        if (!data->capture_running) {
+        if (!data->capture_output) {
             usleep(1000); // 1ms
             continue;
         }
-
-        pthread_mutex_lock(&data->capture_mutex);
 
         // request output capture
         struct zwlr_screencopy_frame_v1* screencopy_frame = zwlr_screencopy_manager_v1_capture_output(data->screencopy_manager, 0, data->capture_output);
@@ -101,14 +100,21 @@ static void* capture_thread(void* _) {
         wl_display_roundtrip(data->wl);
         if (data->screencopy_frame_failed) {
             blog(LOG_ERROR, "Failed to capture output");
-            pthread_mutex_unlock(&data->capture_mutex);
             continue;
         }
 
         // create dma-buf
         if ((gbm_bo_width != data->screencopy_frame_width || gbm_bo_height != data->screencopy_frame_height || gbm_bo_format != data->screencopy_frame_format) && gbm_bo) {
             gbm_bo_destroy(gbm_bo);
+            wl_buffer_destroy(wl_buffer);
+
+            obs_enter_graphics();
+            gs_texture_destroy(data->obs_texture);
+            obs_leave_graphics();
+
+            data->obs_texture = NULL;
             gbm_bo = NULL;
+            wl_buffer = NULL;
         }
 
         if (!gbm_bo) {
@@ -118,7 +124,6 @@ static void* capture_thread(void* _) {
             gbm_bo = gbm_bo_create(data->gbm, gbm_bo_width, gbm_bo_height, gbm_bo_format, GBM_BO_USE_RENDERING);
             if (gbm_bo == NULL) {
                 blog(LOG_ERROR, "Failed to create GBM buffer object");
-                pthread_mutex_unlock(&data->capture_mutex);
                 continue;
             }
 
@@ -161,15 +166,12 @@ static void* capture_thread(void* _) {
         wl_display_roundtrip(data->wl);
         if (data->screencopy_frame_failed) {
             blog(LOG_ERROR, "Failed to copy frame to DMA-BUF");
-            pthread_mutex_unlock(&data->capture_mutex);
             zwlr_screencopy_frame_v1_destroy(screencopy_frame);
             continue;
         }
 
         // release frame
         zwlr_screencopy_frame_v1_destroy(screencopy_frame);
-
-        pthread_mutex_unlock(&data->capture_mutex);
     }
 
     // destroy dma-buf
@@ -268,7 +270,6 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
 
     // start capture thread
     pthread_create(&data->capture_thread, NULL, capture_thread, data);
-    pthread_mutex_init(&data->capture_mutex, NULL);
 
     // update source settings
     source_update(data, settings);
@@ -278,10 +279,6 @@ static void* source_create(obs_data_t* settings, obs_source_t* source) {
 
 static void source_update(void* _, obs_data_t* settings) {
     source_data* data = (source_data*) _;
-
-    // pause capture thread
-    data->capture_running = false;
-    pthread_mutex_lock(&data->capture_mutex);
 
     // find output to capture
     const char* output_pattern = obs_data_get_string(settings, "output");
@@ -297,10 +294,6 @@ static void source_update(void* _, obs_data_t* settings) {
         return;
     }
 
-    // resume capture thread
-    data->capture_running = true;
-    pthread_mutex_unlock(&data->capture_mutex);
-
 }
 
 static void source_destroy(void* _) {
@@ -309,7 +302,6 @@ static void source_destroy(void* _) {
     // stop capture thread
     data->capture_stopsignal = true;
     pthread_join(data->capture_thread, NULL);
-    pthread_mutex_destroy(&data->capture_mutex);
 
     // destroy all outputs
     wl_output_info* output, *safe_output;
