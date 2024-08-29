@@ -14,8 +14,8 @@
 #include <unistd.h>
 #include <gbm.h>
 
-#include "wlr-protocols/wlr-screencopy-unstable-v1.h"
-#include "wayland-protocols/linux-dmabuf-unstable-v1.h"
+#include <wlroots/wlr-screencopy-unstable-v1.h>
+#include <wayland/linux-dmabuf-unstable-v1.h>
 
 OBS_DECLARE_MODULE()
 
