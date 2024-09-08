@@ -788,7 +788,7 @@ zwp_linux_buffer_params_v1_create(struct zwp_linux_buffer_params_v1 *zwp_linux_b
  * of planes and the format, bad format, non-positive width or
  * height, or bad offset or stride.
  * - INVALID_WL_BUFFER, in case the cause for failure is unknown or
- * plaform specific.
+ * platform specific.
  * - the server creates an invalid wl_buffer, marks it as failed and
  * sends a 'failed' event to the client. The result of using this
  * invalid wl_buffer as an argument in any request by the client is

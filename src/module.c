@@ -379,13 +379,27 @@ static void source_render(void* _, gs_effect_t* effect) {
     }
 
     // render texture
-    char* technique = (data->obs_color_space == GS_CS_SRGB || gs_get_color_space() == GS_CS_SRGB) ? "Draw" : "DrawSrgbDecompress";
     effect = obs_get_base_effect(OBS_EFFECT_OPAQUE);
-    gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), data->obs_texture);
+    gs_technique_t* technique = gs_effect_get_technique(effect, "DrawSrgbDecompress");
+    gs_technique_begin(technique);
+    gs_technique_begin_pass(technique, 0);
 
-    while (gs_effect_loop(effect, technique)) {
-        gs_draw_sprite(data->obs_texture, 0, data->screencopy_frame_width, data->screencopy_frame_height);
-    }
+    const bool linear_srgb = gs_get_linear_srgb();
+    const bool previous = gs_framebuffer_srgb_enabled();
+    gs_enable_framebuffer_srgb(linear_srgb);
+
+    gs_eparam_t* image = gs_effect_get_param_by_name(effect, "image");
+    if (linear_srgb)
+        gs_effect_set_texture_srgb(image, data->obs_texture);
+    else
+        gs_effect_set_texture(image, data->obs_texture);
+
+    gs_draw_sprite(data->obs_texture, 0, data->screencopy_frame_width, data->screencopy_frame_height);
+
+    gs_enable_framebuffer_srgb(previous);
+
+    gs_technique_end_pass(technique);
+    gs_technique_end(technique);
 }
 
 static obs_properties_t* source_get_properties(void* _) {
